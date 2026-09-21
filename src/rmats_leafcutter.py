@@ -253,7 +253,7 @@ def merge_overlap_genomic(lc_df, rmats_introns_df, max_boundary_drift=30):
     pr_lc = pr.PyRanges(lc_df)
     pr_rmats = pr.PyRanges(rmats_introns_df)
     
-    overlap_df = pr_rmats.join(pr_lc, stranded=True, suffix='_LeafCutter').df
+    overlap_df = pr_rmats.join(pr_lc, suffix='_LeafCutter').df
     
     if overlap_df.empty:
         return overlap_df
