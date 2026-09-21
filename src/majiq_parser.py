@@ -1,39 +1,58 @@
 import pandas as pd
-import pyranges as pr
 
-def parse_majiq(voila_path):
+def parse_majiq_voila(voila_path, gene_to_chrom_map=None):
     """
-    Parses MAJIQ/Voila TSV output, flattening multi-junction LSVs 
-    into individual intron rows for pipeline integration.
+    Parses MAJIQ/Voila output using the updated schema.
+    - Automatically detects file delimiter (CSV/TSV).
+    - Extracts chromosomes natively from the 'seqid' column.
+    - Maps 'mean_dpsi_per_lsv_junction' and 'probability_changing'.
     """
-    df = pd.read_csv(voila_path, sep='\t')
+    # Automatically sniff delimiter (handles comma-separated CSV or tab-separated TSV)
+    df = pd.read_csv(voila_path, sep=None, engine='python')
     
     intron_rows = []
+    skipped_count = 0
+    
     for _, row in df.iterrows():
-        gene = str(row.get('gene_id', row.get('Gene name', '')))
+        raw_gene = str(row.get('gene_id', ''))
+        clean_gene = raw_gene.replace('gene:', '').split('.')[0].strip()
+        
+        # 1. Resolve chromosome using the explicit 'seqid' column from the new schema
+        raw_chrom = row.get('seqid', None)
+        if pd.notna(raw_chrom):
+            raw_chrom_str = str(raw_chrom)
+            chrom = 'chr' + raw_chrom_str if not raw_chrom_str.startswith('chr') else raw_chrom_str
+        elif gene_to_chrom_map is not None:
+            # Fallback to GTF map if seqid is missing
+            chrom = gene_to_chrom_map.get(clean_gene, None)
+        else:
+            chrom = None
+            
+        if not chrom:
+            skipped_count += 1
+            continue  # Skip if chromosome cannot be resolved
+            
         lsv_id = str(row.get('lsv_id', ''))
         lsv_type = str(row.get('lsv_type', ''))
+        strand = str(row.get('strand', '+'))
         
-        # Extract chromosome and strand 
-        chrom = str(row.get('chrom', row.get('Chromosome', row.get('Chr', ''))))
-        strand = str(row.get('strand', row.get('Strand', '')))
+        # 2. Extract semicolon-delimited arrays using the updated column headers
+        junc_str = str(row.get('junctions_coords', ''))
+        dpsi_str = str(row.get('mean_dpsi_per_lsv_junction', ''))
+        prob_str = str(row.get('probability_changing', ''))
         
-        # Dynamically find columns starting with 'junctions' or containing stats
-        junc_col = next((c for c in df.columns if c.startswith('junctions')), None)
-        dpsi_col = next((c for c in df.columns if 'mean_dpsi' in c), None)
-        prob_col = next((c for c in df.columns if 'probability' in c), None)
-        
-        if not junc_col or pd.isna(row[junc_col]):
+        if not junc_str or pd.isna(junc_str):
             continue
             
-        junc_strs = str(row[junc_col]).split(':')
-        dpsi_vals = str(row[dpsi_col]).split(':') if dpsi_col and not pd.isna(row[dpsi_col]) else [0.0] * len(junc_strs)
-        prob_vals = str(row[prob_col]).split(':') if prob_col and not pd.isna(row[prob_col]) else [1.0] * len(junc_strs)
+        junc_coords_list = junc_str.split(';')
+        dpsi_vals = dpsi_str.split(';') if not pd.isna(dpsi_str) else []
+        prob_vals = prob_str.split(';') if not pd.isna(prob_str) else []
         
-        for idx, junc_str in enumerate(junc_strs):
-            if '-' not in junc_str:
+        for idx, junc_pair in enumerate(junc_coords_list):
+            if '-' not in junc_pair:
                 continue
-            parts = junc_str.split('-')
+            
+            parts = junc_pair.split('-')
             start_1base = int(parts[0])
             end_1base = int(parts[1])
             
@@ -42,22 +61,22 @@ def parse_majiq(voila_path):
             end_0base = end_1base
             
             dpsi = float(dpsi_vals[idx]) if idx < len(dpsi_vals) else 0.0
-            prob = float(prob_vals[idx]) if idx < len(prob_vals) else 1.0
-            
-            formatted_chrom = 'chr' + chrom if not str(chrom).startswith('chr') else chrom
+            prob = float(prob_vals[idx]) if idx < len(prob_vals) else 0.0
             
             intron_rows.append({
                 'Tool_Source': 'MAJIQ',
                 'Event_ID': lsv_id,
-                'geneSymbol': gene,
-                'Chromosome': formatted_chrom,
+                'geneSymbol': clean_gene,
+                'Chromosome': chrom,
                 'Strand': strand,
                 'Start': start_0base,
                 'End': end_0base,
                 'Intron_Type': f'MAJIQ_{lsv_type}',
-                'IncLevelDifference': dpsi,       # Mapped as Delta-PSI
-                'ProbabilityChanging': prob,
-                'PValue': 1.0 - prob             # Approximate p-value equivalent for filtering compatibility
+                'IncLevelDifference': dpsi,          # Mapped from mean_dpsi_per_lsv_junction
+                'ProbabilityChanging': prob          # Mapped from probability_changing
             })
             
+    if skipped_count > 0:
+        print(f"Note: Skipped {skipped_count} MAJIQ rows due to missing chromosome/seqid information.")
+        
     return pd.DataFrame(intron_rows)

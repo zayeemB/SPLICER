@@ -1,7 +1,7 @@
 import pandas as pd
 import pyranges as pr
 
-from utils import standardize_chrom_strand
+from src.utils import standardize_chrom_strand
 
 def parse_rmats_se(path):
     """Parses Skipped Exon (SE) events."""
