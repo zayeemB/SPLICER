@@ -97,7 +97,7 @@ def merge_exact_introns(lc_df, rmats_introns_df):
     )
     return merged
 
-def merge_overlap_genomic(lc_df, rmats_introns_df, max_boundary_drift=30):
+def merge_overlap_genomic(lc_df, rmats_introns_df, max_boundary_drift=100):
     """
     Joins spatial overlaps and filters results using a maximum boundary drift threshold (in bp).
     Enforces strand-matching and prevents short inclusion introns from cross-matching 
@@ -108,7 +108,7 @@ def merge_overlap_genomic(lc_df, rmats_introns_df, max_boundary_drift=30):
     pr_rmats = pr.PyRanges(rmats_introns_df)
     
     # Perform strand-aware spatial join
-    overlap_df = pr_rmats.join(pr_lc, stranded=True, suffix='_LeafCutter').df
+    overlap_df = pr_rmats.join(pr_lc, suffix='_LeafCutter').df
     
     if overlap_df.empty:
         return overlap_df
@@ -127,17 +127,50 @@ def merge_overlap_genomic(lc_df, rmats_introns_df, max_boundary_drift=30):
 
 # Main Execution Flow
 if __name__ == "__main__":
-    leafcutter_file = "data/leafcutter/leafcutter_ds_effect_sizes.csv"
-    rmats_se_file = "data/rmats/SE.csv"
+    # leafcutter_file = "data/leafcutter/leafcutter_ds_effect_sizes.csv"
+    # rmats_se_file = "data/rmats/SE.csv"
     
-    # Load and standardize
-    lc_data = parse_leafcutter(leafcutter_file)
-    rmats_introns = parse_rmats_se(rmats_se_file)
+    # # Load and standardize
+    # lc_data = parse_leafcutter(leafcutter_file)
+    # rmats_introns = parse_rmats_se(rmats_se_file)
     
-    # Strategy 1: Exact Intron Boundary Matches
-    exact_matches = merge_exact_introns(lc_data, rmats_introns)
-    exact_matches.to_csv("rmats_leafcutter_exact_matches.csv", index=False)
+    # # Strategy 1: Exact Intron Boundary Matches
+    # exact_matches = merge_exact_introns(lc_data, rmats_introns)
+    # exact_matches.to_csv("rmats_leafcutter_exact_matches.csv", index=False)
     
-    # Strategy 2: Drift-Tolerant Overlap Matches (allows up to 30 bp splice site drift)
-    overlap_matches = merge_overlap_genomic(lc_data, rmats_introns, max_boundary_drift=30)
-    overlap_matches.to_csv("rmats_leafcutter_overlap_matches.csv", index=False)
+    # # Strategy 2: Drift-Tolerant Overlap Matches (allows up to 30 bp splice site drift)
+    # overlap_matches = merge_overlap_genomic(lc_data, rmats_introns, max_boundary_drift=30)
+    # overlap_matches.to_csv("rmats_leafcutter_overlap_matches.csv", index=False)
+
+    # Load data
+    lc_data = parse_leafcutter("data/leafcutter/leafcutter_ds_effect_sizes.csv")
+    rmats_introns = parse_rmats_se("data/rmats/SE.csv")
+
+    print(f"Total rMATS Introns Parsed: {len(rmats_introns)}")
+    print(f"Total LeafCutter Introns Parsed: {len(lc_data)}")
+
+    # Step 1: Check Strand compatibility
+    print("rMATS Strands:", rmats_introns['Strand'].unique())
+    print("LeafCutter Strands:", lc_data['Strand'].unique())
+
+    # Step 2: Unstranded Spatial Overlaps
+    pr_lc = pr.PyRanges(lc_data)
+    pr_rmats = pr.PyRanges(rmats_introns)
+
+    unstranded_overlaps = pr_rmats.join(pr_lc, suffix='_LeafCutter').df
+    print(f"Overlaps found (Unstranded): {len(unstranded_overlaps)}")
+
+    # Step 3: Stranded Spatial Overlaps
+    stranded_overlaps = pr_rmats.join(pr_lc, suffix='_LeafCutter').df
+    print(f"Overlaps found (Stranded): {len(stranded_overlaps)}")
+
+    # Step 4: After Boundary Drift Filter (30 bp)
+    if not stranded_overlaps.empty:
+        stranded_overlaps['Start_Drift'] = (stranded_overlaps['Start'] - stranded_overlaps['Start_LeafCutter']).abs()
+        stranded_overlaps['End_Drift'] = (stranded_overlaps['End'] - stranded_overlaps['End_LeafCutter']).abs()
+        
+        filtered = stranded_overlaps[
+            (stranded_overlaps['Start_Drift'] <= 30) & 
+            (stranded_overlaps['End_Drift'] <= 30)
+        ]
+        print(f"Matches remaining after 30 bp drift filter: {len(filtered)}")
