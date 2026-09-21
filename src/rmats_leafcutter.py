@@ -269,7 +269,10 @@ def merge_overlap_genomic(lc_df, rmats_introns_df, max_boundary_drift=30):
     return filtered_matches
 
 if __name__ == "__main__":
-    leafcutter_file = "leafcutter_effect_sizes.csv"
+    DATA_DIR = "./data"
+    OUTPUT_DIR = "./output"
+
+    leafcutter_file = f"{DATA_DIR}/leafcutter/leafcutter_ds_effect_sizes.csv"
     
     # Load LeafCutter data
     lc_data = parse_leafcutter(leafcutter_file)
@@ -278,11 +281,11 @@ if __name__ == "__main__":
     rmats_dfs = []
     
     event_files = {
-        'SE': ('SE.MATS.JC.csv', parse_rmats_se),
-        'A3SS': ('A3SS.MATS.JC.csv', lambda p: parse_rmats_a3ss_a5ss(p, 'A3SS')),
-        'A5SS': ('A5SS.MATS.JC.csv', lambda p: parse_rmats_a3ss_a5ss(p, 'A5SS')),
-        'RI': ('RI.MATS.JC.csv', parse_rmats_ri),
-        'MXE': ('MXE.MATS.JC.csv', parse_rmats_mxe)
+        'SE': (f'{DATA_DIR}/rmats/SE.csv', parse_rmats_se),
+        'A3SS': (f'{DATA_DIR}/A3SS.csv', lambda p: parse_rmats_a3ss_a5ss(p, 'A3SS')),
+        'A5SS': (f'{DATA_DIR}/A5SS.csv', lambda p: parse_rmats_a3ss_a5ss(p, 'A5SS')),
+        'RI': (f'{DATA_DIR}/RI.csv', parse_rmats_ri),
+        'MXE': (f'{DATA_DIR}/MXE.csv', parse_rmats_mxe)
     }
     
     for event_type, (filename, parser_func) in event_files.items():
@@ -300,18 +303,30 @@ if __name__ == "__main__":
         # Run drift-tolerant spatial join against LeafCutter
         overlap_matches = merge_overlap_genomic(lc_data, all_rmats_introns, max_boundary_drift=30)
 
-        # Define your significance thresholds (adjust these numbers as needed)
-        pvalue_threshold = 0.05
-        fdr_threshold = 0.05
-        
-        # 1. Filter and save by P-Value
-        matches_pvalue = overlap_matches[overlap_matches['PValue'] <= pvalue_threshold].copy()
-        matches_pvalue.to_csv("rmats_leafcutter_matches_pvalue_filtered.csv", index=False)
-        print(f"Saved {len(matches_pvalue)} matches using P-Value <= {pvalue_threshold}")
-        
-        # 2. Filter and save by FDR
-        matches_fdr = overlap_matches[overlap_matches['FDR'] <= fdr_threshold].copy()
-        matches_fdr.to_csv("rmats_leafcutter_matches_fdr_filtered.csv", index=False)
-        print(f"Saved {len(matches_fdr)} matches using FDR <= {fdr_threshold}")
+        # Define your significance and effect size thresholds
+        PVALUE_THRESHOLD = 0.01      # Adjust as needed (e.g., 0.01 or 0.05)
+        FDR_THRESHOLD = 0.05         # Standard multiple testing threshold
+        MIN_DELTA_PSI = 0.10         # Minimum absolute change in inclusion level (10%)
+
+        # 1. P-Value Filtered Dataset
+        # Filters for events meeting the p-value cutoff AND showing a real magnitude change
+        pvalue_filtered = overlap_matches[
+            (overlap_matches['PValue'] < PVALUE_THRESHOLD) & 
+            (overlap_matches['IncLevelDifference'].abs() >= MIN_DELTA_PSI)
+        ].copy()
+
+        pvalue_filtered.to_csv(f"{OUTPUT_DIR}/rmats_leafcutter_pvalue_filtered.csv", index=False)
+        print(f"Saved {len(pvalue_filtered)} rows to 'rmats_leafcutter_pvalue_filtered.csv'")
+
+
+        # 2. FDR Filtered Dataset
+        # Filters for events meeting the False Discovery Rate cutoff AND showing a real magnitude change
+        fdr_filtered = overlap_matches[
+            (overlap_matches['FDR'] < FDR_THRESHOLD) & 
+            (overlap_matches['IncLevelDifference'].abs() >= MIN_DELTA_PSI)
+        ].copy()
+
+        fdr_filtered.to_csv(f"{OUTPUT_DIR}/rmats_leafcutter_fdr_filtered.csv", index=False)
+        print(f"Saved {len(fdr_filtered)} rows to 'rmats_leafcutter_fdr_filtered.csv'")
 
         print(f"Total validated matches across all event types: {len(overlap_matches)}")
