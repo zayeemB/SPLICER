@@ -282,10 +282,10 @@ if __name__ == "__main__":
     
     event_files = {
         'SE': (f'{DATA_DIR}/rmats/SE.csv', parse_rmats_se),
-        'A3SS': (f'{DATA_DIR}/A3SS.csv', lambda p: parse_rmats_a3ss_a5ss(p, 'A3SS')),
-        'A5SS': (f'{DATA_DIR}/A5SS.csv', lambda p: parse_rmats_a3ss_a5ss(p, 'A5SS')),
-        'RI': (f'{DATA_DIR}/RI.csv', parse_rmats_ri),
-        'MXE': (f'{DATA_DIR}/MXE.csv', parse_rmats_mxe)
+        'A3SS': (f'{DATA_DIR}/rmats/A3SS.csv', lambda p: parse_rmats_a3ss_a5ss(p, 'A3SS')),
+        'A5SS': (f'{DATA_DIR}/rmats/A5SS.csv', lambda p: parse_rmats_a3ss_a5ss(p, 'A5SS')),
+        'RI': (f'{DATA_DIR}/rmats/RI.csv', parse_rmats_ri),
+        'MXE': (f'{DATA_DIR}/rmats/MXE.csv', parse_rmats_mxe)
     }
     
     for event_type, (filename, parser_func) in event_files.items():
