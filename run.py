@@ -80,6 +80,7 @@ if rmats_dfs:
             overlap_matches = lc_rmats_overlap
 
 if not overlap_matches.empty:
+        overlap_matches.to_csv(f"{OUTPUT_DIR}/multitool_streamlined_unfiltered.csv", index=False)
         print(f"Total rows before filtering: {len(overlap_matches)}")
         print("Columns available in overlap_matches:", overlap_matches.columns.tolist())
 
