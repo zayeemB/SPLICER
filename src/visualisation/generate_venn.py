@@ -5,9 +5,9 @@ import pandas as pd
 import pyranges as pr
 
 # Import your custom modular parser functions
-from leafcutter_parser import parse_leafcutter
-from majiq_parser import parse_majiq_voila
-from rmats_parser import (
+from SPLICER.src.parsers.leafcutter_parser import parse_leafcutter
+from SPLICER.src.parsers.majiq_parser import parse_majiq_voila
+from SPLICER.src.parsers.rmats_parser import (
     parse_rmats_a3ss_a5ss,
     parse_rmats_mxe,
     parse_rmats_ri,
@@ -15,72 +15,75 @@ from rmats_parser import (
 )
 
 OUTPUT_DIR = "./output"
-print("Processing tool outputs with robust coordinate & strand-agnostic joining...")
+print(
+    "Processing tool outputs using modular parsers and significance filters..."
+)
 
-
-def clean_chromosomes(df):
-  """Standardizes chromosome names to ensure consistent merging (adds 'chr' if missing)."""
-  if df is not None and not df.empty and "Chromosome" in df.columns:
-    df["Chromosome"] = df["Chromosome"].astype(str)
-    # If chromosomes don't start with 'chr', prepend it for uniformity
-    mask = ~df["Chromosome"].str.startswith("chr")
-    df.loc[mask, "Chromosome"] = "chr" + df.loc[mask, "Chromosome"]
-  return df
-
-
-# ==========================================
-# 1. LOAD & PARSE rMATS OUTPUTS (All Types)
-# ==========================================
+# 1. LOAD & FILTER rMATS OUTPUTS (All Types)
 RMATS_DIR = "/Users/zaiem/Desktop/BTP Tool/SPLICER/data/rmats"
 rmats_dfs = []
 
 rmats_tasks = [
-    ("SE.MATS.JC.csv", parse_rmats_se),
-    ("RI.MATS.JC.csv", parse_rmats_ri),
-    ("MXE.MATS.JC.csv", parse_rmats_mxe),
-    ("A3SS.MATS.JC.csv", parse_rmats_a3ss_a5ss),
-    ("A5SS.MATS.JC.csv", parse_rmats_a3ss_a5ss),
+    ("SE.csv", parse_rmats_se, None),
+    ("RI.csv", parse_rmats_ri, None),
+    ("MXE.csv", parse_rmats_mxe, None),
+    ("A3SS.csv", parse_rmats_a3ss_a5ss, "A3SS"),
+    ("A5SS.csv", parse_rmats_a3ss_a5ss, "A5SS"),
 ]
 
-for filename, parser_func in rmats_tasks:
+for filename, parser_func, event_type in rmats_tasks:
   file_path = os.path.join(RMATS_DIR, filename)
   if os.path.exists(file_path):
     try:
-      df = parser_func(file_path)
+      if event_type:
+        df = parser_func(file_path, event_type)
+      else:
+        df = parser_func(file_path)
       if df is not None and not df.empty:
-        rmats_dfs.append(clean_chromosomes(df))
+        rmats_dfs.append(df)
     except Exception as e:
       print(f"Skipping rMATS file {filename} due to error: {e}")
 
 if rmats_dfs:
-  rmats_combined = pd.concat(rmats_dfs, ignore_index=True).drop_duplicates(
-      subset=["Chromosome", "Start", "End"]
-  )
+  rmats_combined = pd.concat(rmats_dfs, ignore_index=True)
+  # Apply rMATS significance filter
+  rmats_filtered = rmats_combined[rmats_combined["FDR"] < 0.05].copy()
 else:
-  rmats_combined = pd.DataFrame(columns=["Chromosome", "Start", "End"])
+  rmats_filtered = pd.DataFrame(columns=["Chromosome", "Start", "End"])
 
-pr_rmats = pr.PyRanges(rmats_combined) if not rmats_combined.empty else None
-print(f"Total unique significant rMATS events: {len(rmats_combined)}")
+pr_rmats = (
+    pr.PyRanges(rmats_filtered[["Chromosome", "Start", "End"]])
+    if not rmats_filtered.empty
+    else None
+)
+print(f"Significant rMATS events (FDR < 0.05): {len(rmats_filtered)}")
 
-# ==========================================
-# 2. LOAD & PARSE MAJIQ OUTPUT
-# ==========================================
+# 2. LOAD & FILTER MAJIQ OUTPUT
 MAJIQ_FILE = "/Users/zaiem/Desktop/BTP Tool/SPLICER/data/majiq/tsv_f.csv"
 majiq_df = pd.DataFrame(columns=["Chromosome", "Start", "End"])
 
 if os.path.exists(MAJIQ_FILE):
   try:
-    majiq_df = parse_majiq_voila(MAJIQ_FILE)
-    majiq_df = clean_chromosomes(majiq_df)
+    raw_majiq = parse_majiq_voila(MAJIQ_FILE)
+    # Apply MAJIQ significance filter
+    if "ProbabilityChanging" in raw_majiq.columns:
+      majiq_df = raw_majiq[raw_majiq["ProbabilityChanging"] >= 0.8].copy()
+    else:
+      majiq_df = raw_majiq.copy()
   except Exception as e:
     print(f"Could not load MAJIQ file: {e}")
 
-pr_majiq = pr.PyRanges(majiq_df) if not majiq_df.empty else None
-print(f"Total unique significant MAJIQ events: {len(majiq_df)}")
+pr_majiq = (
+    pr.PyRanges(majiq_df[["Chromosome", "Start", "End"]])
+    if not majiq_df.empty
+    else None
+)
+print(
+    "Significant MAJIQ events (ProbabilityChanging >= 0.8):"
+    f" {len(majiq_df)}"
+)
 
-# ==========================================
-# 3. LOAD & PARSE LEAFCUTTER OUTPUT
-# ==========================================
+# 3. LOAD LEAFCUTTER OUTPUT
 LC_FILE = (
     "/Users/zaiem/Desktop/BTP Tool/SPLICER/data/leafcutter/leafcutter_ds_effect"
     "_sizes.csv"
@@ -90,18 +93,22 @@ lc_df = pd.DataFrame(columns=["Chromosome", "Start", "End"])
 if os.path.exists(LC_FILE):
   try:
     lc_df = parse_leafcutter(LC_FILE)
-    lc_df = clean_chromosomes(lc_df)
+    # If LeafCutter needs a p-value filter, add it here (e.g., p.adjust < 0.05)
   except Exception as e:
     print(f"Could not load LeafCutter file: {e}")
 
-pr_lc = pr.PyRanges(lc_df) if not lc_df.empty else None
-print(f"Total unique significant LeafCutter events: {len(lc_df)}")
+pr_lc = (
+    pr.PyRanges(lc_df[["Chromosome", "Start", "End"]])
+    if not lc_df.empty
+    else None
+)
+print(f"Total LeafCutter events: {len(lc_df)}")
 
 # ==========================================
-# 4. CALCULATE VENN SUBSETS SAFELY (Strand-Agnostic)
+# 4. CALCULATE VENN SUBSETS SAFELY (Clean Joins)
 # ==========================================
 n_lc = len(lc_df) if not lc_df.empty else 0
-n_rmats = len(rmats_combined) if not rmats_combined.empty else 0
+n_rmats = len(rmats_filtered) if not rmats_filtered.empty else 0
 n_majiq = len(majiq_df) if not majiq_df.empty else 0
 
 if (
@@ -112,13 +119,30 @@ if (
     and n_rmats > 0
     and n_majiq > 0
 ):
-  # Use stranded=False to prevent strand-mismatch filtering bugs
-  all_three = len(
-      pr_lc.join(pr_rmats, stranded=False).join(pr_majiq, stranded=False)
+  # Pairwise intersections with column cleanup to prevent suffix collision errors
+  res_lc_rmats = pr_lc.join(pr_rmats)
+  lc_rmats_clean = pr.PyRanges(
+      res_lc_rmats.df[["Chromosome", "Start", "End"]].drop_duplicates()
   )
-  lc_rmats_any = len(pr_lc.join(pr_rmats, stranded=False))
-  lc_majiq_any = len(pr_lc.join(pr_majiq, stranded=False))
-  rmats_majiq_any = len(pr_rmats.join(pr_majiq, stranded=False))
+  lc_rmats_any = len(lc_rmats_clean)
+
+  res_lc_majiq = pr_lc.join(pr_majiq)
+  lc_majiq_clean = pr.PyRanges(
+      res_lc_majiq.df[["Chromosome", "Start", "End"]].drop_duplicates()
+  )
+  lc_majiq_any = len(lc_majiq_clean)
+
+  res_rmats_majiq = pr_rmats.join(pr_majiq)
+  rmats_majiq_clean = pr.PyRanges(
+      res_rmats_majiq.df[["Chromosome", "Start", "End"]].drop_duplicates()
+  )
+  rmats_majiq_any = len(rmats_majiq_clean)
+
+  # Three-way intersection using the cleaned intermediate object
+  res_all = lc_rmats_clean.join(pr_majiq)
+  all_three = len(
+      res_all.df[["Chromosome", "Start", "End"]].drop_duplicates()
+  )
 else:
   all_three = 0
   lc_rmats_any = 0

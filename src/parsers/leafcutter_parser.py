@@ -1,9 +1,10 @@
 import pandas as pd
 
-def parse_leafcutter(leafcutter_path):
+def parse_leafcutter(leafcutter_path, flip_sign=False):
     """
     Parses LeafCutter effect sizes CSV output and standardizes to 
     0-based half-open coordinates [Start, End).
+    - Includes a `flip_sign` flag to invert DeltaPSI if contrast groups are reversed.
     """
     lc_df = pd.read_csv(leafcutter_path)
     
@@ -26,10 +27,15 @@ def parse_leafcutter(leafcutter_path):
     # Map DeltaPSI to IncLevelDifference
     delta_psi_col = next((c for c in lc_df.columns if c.lower() in ['deltapsi', 'delta_psi']), None)
     if delta_psi_col:
-        lc_df['IncLevelDifference'] = lc_df[delta_psi_col]
+        dpsi = lc_df[delta_psi_col]
+        
+        # Apply sign flip if contrast groups are inverted
+        if flip_sign:
+            dpsi = -dpsi
+            
+        lc_df['IncLevelDifference'] = dpsi
     else:
         raise ValueError(f"LeafCutter file is missing a DeltaPSI column. Available columns: {list(lc_df.columns)}")
         
     lc_df['Tool_Source'] = 'LeafCutter'
     return lc_df
-

@@ -1,11 +1,12 @@
 import pandas as pd
 
-def parse_majiq_voila(voila_path, gene_to_chrom_map=None):
+def parse_majiq_voila(voila_path, gene_to_chrom_map=None, flip_sign=False):
     """
     Parses MAJIQ/Voila output using the updated schema.
     - Automatically detects file delimiter (CSV/TSV).
     - Extracts chromosomes natively from the 'seqid' column.
     - Maps 'mean_dpsi_per_lsv_junction' and 'probability_changing'.
+    - Includes a `flip_sign` flag to invert DeltaPSI if contrast groups are reversed.
     """
     # Automatically sniff delimiter (handles comma-separated CSV or tab-separated TSV)
     df = pd.read_csv(voila_path, sep=None, engine='python')
@@ -61,6 +62,11 @@ def parse_majiq_voila(voila_path, gene_to_chrom_map=None):
             end_0base = end_1base
             
             dpsi = float(dpsi_vals[idx]) if idx < len(dpsi_vals) else 0.0
+            
+            # Apply sign flip if the contrast groups are inverted
+            if flip_sign:
+                dpsi = -dpsi
+                
             prob = float(prob_vals[idx]) if idx < len(prob_vals) else 0.0
             
             intron_rows.append({

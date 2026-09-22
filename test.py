@@ -5,9 +5,9 @@ import pandas as pd
 import pyranges as pr
 
 # Import your custom modular parser functions
-from src.leafcutter_parser import parse_leafcutter
-from src.majiq_parser import parse_majiq_voila
-from src.rmats_parser import (
+from SPLICER.src.parsers.leafcutter_parser import parse_leafcutter
+from SPLICER.src.parsers.majiq_parser import parse_majiq_voila
+from SPLICER.src.parsers.rmats_parser import (
     parse_rmats_a3ss_a5ss,
     parse_rmats_mxe,
     parse_rmats_ri,

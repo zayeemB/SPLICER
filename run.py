@@ -1,13 +1,13 @@
 import pandas as pd
-from src.leafcutter_parser import parse_leafcutter
-from src.rmats_parser import (
+from src.parsers.leafcutter_parser import parse_leafcutter
+from src.parsers.rmats_parser import (
     parse_rmats_se, 
     parse_rmats_a3ss_a5ss, 
     parse_rmats_mxe, 
     parse_rmats_ri
 )
-from src.majiq_parser import parse_majiq_voila
-from src.utils import merge_overlap_genomic, load_gene_chromosome_map
+from src.parsers.majiq_parser import parse_majiq_voila
+from src.utils import merge_overlap_genomic, load_gene_chromosome_map, determine_tool_sign_flip
 
 # Define streamlined statistical and effect size thresholds
 RMATS_FDR_THRESHOLD = 0.05       # rMATS q-value (FDR) cutoff
@@ -30,7 +30,7 @@ except FileNotFoundError:
 
 # 2. Load LeafCutter data
 try:
-    lc_data = parse_leafcutter(leafcutter_file)
+    lc_data = parse_leafcutter(leafcutter_file, flip_sign=False)
     print(f"Successfully parsed {len(lc_data)} introns from LeafCutter.")
 except FileNotFoundError:
     lc_data = pd.DataFrame()
@@ -38,7 +38,10 @@ except FileNotFoundError:
 
 # 3. Load and parse MAJIQ data (auto-checks for native chromosomes or uses GTF map)
 try:
-    majiq_data = parse_majiq_voila(majiq_file, gene_to_chrom_map=gene_chrom_map)
+    majiq_data = parse_majiq_voila(
+        "/Users/zaiem/Desktop/BTP Tool/SPLICER/data/majiq/tsv_f.csv",
+        flip_sign=False,
+    )
     print(f"Successfully parsed and mapped {len(majiq_data)} flat introns from MAJIQ.")
 except FileNotFoundError:
     majiq_data = pd.DataFrame()
@@ -78,11 +81,6 @@ if rmats_dfs:
             overlap_matches = merge_overlap_genomic(lc_rmats_overlap, majiq_data, max_boundary_drift=30, suffix='_MAJIQ')
         else:
             overlap_matches = lc_rmats_overlap
-
-if not overlap_matches.empty:
-        overlap_matches.to_csv(f"{OUTPUT_DIR}/multitool_streamlined_unfiltered.csv", index=False)
-        print(f"Total rows before filtering: {len(overlap_matches)}")
-        print("Columns available in overlap_matches:", overlap_matches.columns.tolist())
 
 if not overlap_matches.empty:
     # Streamlined filter: rMATS FDR, MAJIQ Probability, and Delta PSI magnitudes across tools
