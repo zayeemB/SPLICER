@@ -1,197 +1,121 @@
-import os
+"""Venn diagram of junction overlap between LeafCutter, rMATS and MAJIQ.
+
+Run from the project root:  python -m src.visualisation.generate_venn
+
+Each tool contributes its filtered, unique junctions (same filters as run.py). Junctions from
+different tools are linked when they are on the same strand and within MAX_BOUNDARY_DRIFT bp at both
+ends; linked junctions form one "locus", and each locus is placed in the Venn region given by the set
+of tools that detected it. The final merged consensus from run.py corresponds to the centre region.
+"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 import matplotlib.pyplot as plt
-from matplotlib_venn import venn3
 import pandas as pd
 import pyranges as pr
+from matplotlib_venn import venn3
 
-# Import your custom modular parser functions
-from SPLICER.src.parsers.leafcutter_parser import parse_leafcutter
-from SPLICER.src.parsers.majiq_parser import parse_majiq_voila
-from SPLICER.src.parsers.rmats_parser import (
-    parse_rmats_a3ss_a5ss,
-    parse_rmats_mxe,
-    parse_rmats_ri,
-    parse_rmats_se,
-)
+from src.pipeline import MAX_BOUNDARY_DRIFT, OUTPUT_DIR, load_filtered_tools
 
-OUTPUT_DIR = "./output"
-print(
-    "Processing tool outputs using modular parsers and significance filters..."
-)
+MERGED_FILE = OUTPUT_DIR / "multitool_summary.csv"
+OUTPUT_PATH = OUTPUT_DIR / "multitool_venn_diagram.png"
+TOOLS = ['LeafCutter', 'rMATS', 'MAJIQ']
 
-# 1. LOAD & FILTER rMATS OUTPUTS (All Types)
-RMATS_DIR = "/Users/zaiem/Desktop/BTP Tool/SPLICER/data/rmats"
-rmats_dfs = []
 
-rmats_tasks = [
-    ("SE.csv", parse_rmats_se, None),
-    ("RI.csv", parse_rmats_ri, None),
-    ("MXE.csv", parse_rmats_mxe, None),
-    ("A3SS.csv", parse_rmats_a3ss_a5ss, "A3SS"),
-    ("A5SS.csv", parse_rmats_a3ss_a5ss, "A5SS"),
-]
+def unique_junctions(df):
+    """One row per distinct junction (rMATS repeats a junction across events)."""
+    cols = ['Chromosome', 'Strand', 'Start', 'End']
+    return df[cols].drop_duplicates().reset_index(drop=True)
 
-for filename, parser_func, event_type in rmats_tasks:
-  file_path = os.path.join(RMATS_DIR, filename)
-  if os.path.exists(file_path):
-    try:
-      if event_type:
-        df = parser_func(file_path, event_type)
-      else:
-        df = parser_func(file_path)
-      if df is not None and not df.empty:
-        rmats_dfs.append(df)
-    except Exception as e:
-      print(f"Skipping rMATS file {filename} due to error: {e}")
 
-if rmats_dfs:
-  rmats_combined = pd.concat(rmats_dfs, ignore_index=True)
-  # Apply rMATS significance filter
-  rmats_filtered = rmats_combined[rmats_combined["FDR"] < 0.05].copy()
-else:
-  rmats_filtered = pd.DataFrame(columns=["Chromosome", "Start", "End"])
+def link_junctions(tool_junctions):
+    """Groups junctions across tools into loci. Returns {frozenset of tools: number of loci}."""
+    # Union-find over (tool, row) nodes
+    parent = {}
 
-pr_rmats = (
-    pr.PyRanges(rmats_filtered[["Chromosome", "Start", "End"]])
-    if not rmats_filtered.empty
-    else None
-)
-print(f"Significant rMATS events (FDR < 0.05): {len(rmats_filtered)}")
+    def find(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
 
-# 2. LOAD & FILTER MAJIQ OUTPUT
-MAJIQ_FILE = "/Users/zaiem/Desktop/BTP Tool/SPLICER/data/majiq/tsv_f.csv"
-majiq_df = pd.DataFrame(columns=["Chromosome", "Start", "End"])
+    for tool, df in tool_junctions.items():
+        for i in df.index:
+            find((tool, i))
 
-if os.path.exists(MAJIQ_FILE):
-  try:
-    raw_majiq = parse_majiq_voila(MAJIQ_FILE)
-    # Apply MAJIQ significance filter
-    if "ProbabilityChanging" in raw_majiq.columns:
-      majiq_df = raw_majiq[raw_majiq["ProbabilityChanging"] >= 0.8].copy()
-    else:
-      majiq_df = raw_majiq.copy()
-  except Exception as e:
-    print(f"Could not load MAJIQ file: {e}")
+    names = list(tool_junctions)
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            left = tool_junctions[a].rename_axis('idx_a').reset_index()
+            right = tool_junctions[b].rename_axis('idx_b').reset_index()
+            joined = pr.PyRanges(left).join(pr.PyRanges(right), suffix='_b').df
+            if joined.empty:
+                continue
+            close = joined[
+                ((joined['Start'] - joined['Start_b']).abs() <= MAX_BOUNDARY_DRIFT)
+                & ((joined['End'] - joined['End_b']).abs() <= MAX_BOUNDARY_DRIFT)
+            ]
+            for ia, ib in zip(close['idx_a'], close['idx_b']):
+                parent[find((a, ia))] = find((b, ib))
 
-pr_majiq = (
-    pr.PyRanges(majiq_df[["Chromosome", "Start", "End"]])
-    if not majiq_df.empty
-    else None
-)
-print(
-    "Significant MAJIQ events (ProbabilityChanging >= 0.8):"
-    f" {len(majiq_df)}"
-)
+    members = {}
+    for node in list(parent):
+        members.setdefault(find(node), set()).add(node[0])
 
-# 3. LOAD LEAFCUTTER OUTPUT
-LC_FILE = (
-    "/Users/zaiem/Desktop/BTP Tool/SPLICER/data/leafcutter/leafcutter_ds_effect"
-    "_sizes.csv"
-)
-lc_df = pd.DataFrame(columns=["Chromosome", "Start", "End"])
+    counts = {}
+    for tools in members.values():
+        counts[frozenset(tools)] = counts.get(frozenset(tools), 0) + 1
+    return counts
 
-if os.path.exists(LC_FILE):
-  try:
-    lc_df = parse_leafcutter(LC_FILE)
-    # If LeafCutter needs a p-value filter, add it here (e.g., p.adjust < 0.05)
-  except Exception as e:
-    print(f"Could not load LeafCutter file: {e}")
 
-pr_lc = (
-    pr.PyRanges(lc_df[["Chromosome", "Start", "End"]])
-    if not lc_df.empty
-    else None
-)
-print(f"Total LeafCutter events: {len(lc_df)}")
+def main():
+    lc, rmats, majiq, _ = load_filtered_tools()
+    tool_junctions = {
+        'LeafCutter': unique_junctions(lc),
+        'rMATS': unique_junctions(rmats),
+        'MAJIQ': unique_junctions(majiq),
+    }
+    for tool, df in tool_junctions.items():
+        print(f"{tool}: {len(df)} unique filtered junctions")
 
-# ==========================================
-# 4. CALCULATE VENN SUBSETS SAFELY (Clean Joins)
-# ==========================================
-n_lc = len(lc_df) if not lc_df.empty else 0
-n_rmats = len(rmats_filtered) if not rmats_filtered.empty else 0
-n_majiq = len(majiq_df) if not majiq_df.empty else 0
+    counts = link_junctions(tool_junctions)
 
-if (
-    pr_lc is not None
-    and pr_rmats is not None
-    and pr_majiq is not None
-    and n_lc > 0
-    and n_rmats > 0
-    and n_majiq > 0
-):
-  # Pairwise intersections with column cleanup to prevent suffix collision errors
-  res_lc_rmats = pr_lc.join(pr_rmats)
-  lc_rmats_clean = pr.PyRanges(
-      res_lc_rmats.df[["Chromosome", "Start", "End"]].drop_duplicates()
-  )
-  lc_rmats_any = len(lc_rmats_clean)
+    def n(*tools):
+        return counts.get(frozenset(tools), 0)
 
-  res_lc_majiq = pr_lc.join(pr_majiq)
-  lc_majiq_clean = pr.PyRanges(
-      res_lc_majiq.df[["Chromosome", "Start", "End"]].drop_duplicates()
-  )
-  lc_majiq_any = len(lc_majiq_clean)
+    # venn3 order: (A only, B only, A&B, C only, A&C, B&C, A&B&C) with A=LeafCutter, B=rMATS, C=MAJIQ
+    subsets = (
+        n('LeafCutter'), n('rMATS'), n('LeafCutter', 'rMATS'), n('MAJIQ'),
+        n('LeafCutter', 'MAJIQ'), n('rMATS', 'MAJIQ'), n('LeafCutter', 'rMATS', 'MAJIQ'),
+    )
+    print(f"Venn subsets (loci): {subsets}")
 
-  res_rmats_majiq = pr_rmats.join(pr_majiq)
-  rmats_majiq_clean = pr.PyRanges(
-      res_rmats_majiq.df[["Chromosome", "Start", "End"]].drop_duplicates()
-  )
-  rmats_majiq_any = len(rmats_majiq_clean)
+    merged_rows = len(pd.read_csv(MERGED_FILE)) if MERGED_FILE.exists() else None
+    shared_by_all = subsets[-1]
 
-  # Three-way intersection using the cleaned intermediate object
-  res_all = lc_rmats_clean.join(pr_majiq)
-  all_three = len(
-      res_all.df[["Chromosome", "Start", "End"]].drop_duplicates()
-  )
-else:
-  all_three = 0
-  lc_rmats_any = 0
-  lc_majiq_any = 0
-  rmats_majiq_any = 0
+    fig, ax = plt.subplots(figsize=(8, 8))
+    venn = venn3(subsets=subsets, set_labels=TOOLS, ax=ax)
+    for subset_id in ['100', '010', '001', '110', '101', '011', '111']:
+        patch = venn.get_patch_by_id(subset_id)
+        if patch:
+            patch.set_alpha(0.5)
 
-lc_rmats_only = max(0, lc_rmats_any - all_three)
-lc_majiq_only = max(0, lc_majiq_any - all_three)
-rmats_majiq_only = max(0, rmats_majiq_any - all_three)
+    ax.set_title("Junctions shared across tools (after per-tool filtering)",
+                 fontsize=14, fontweight="bold", pad=20)
+    caption = f"Shared by all three tools: {shared_by_all} loci"
+    if merged_rows is not None:
+        caption += f"  |  final merged table: {merged_rows} rows"
+    caption += f"\nJunctions linked within {MAX_BOUNDARY_DRIFT} bp at both ends, same strand"
+    fig.text(0.5, 0.06, caption, ha='center', fontsize=10)
 
-only_lc = max(0, n_lc - lc_rmats_only - lc_majiq_only - all_three)
-only_rmats = max(0, n_rmats - lc_rmats_only - rmats_majiq_only - all_three)
-only_majiq = max(0, n_majiq - lc_majiq_only - rmats_majiq_only - all_three)
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    fig.savefig(OUTPUT_PATH, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved Venn diagram to '{OUTPUT_PATH}'")
 
-# Order for venn3: (LeafCutter only, rMATS only, LC&rMATS, MAJIQ only, LC&MAJIQ, rMATS&MAJIQ, All Three)
-subsets = (
-    only_lc,
-    only_rmats,
-    lc_rmats_only,
-    only_majiq,
-    lc_majiq_only,
-    rmats_majiq_only,
-    all_three,
-)
-print(f"Calculated Genomic Interval Venn Subsets: {subsets}")
 
-# ==========================================
-# 5. PLOT VENN DIAGRAM
-# ==========================================
-plt.figure(figsize=(8, 8))
-venn = venn3(subsets=subsets, set_labels=("LeafCutter", "rMATS", "MAJIQ"))
-
-for subset_id in ["100", "010", "001", "110", "101", "011", "111"]:
-  patch = venn.get_patch_by_id(subset_id)
-  if patch:
-    patch.set_alpha(0.5)
-
-plt.title(
-    "Multi-Tool Genomic Interval Overlap (Venn Diagram)",
-    fontsize=14,
-    fontweight="bold",
-    pad=20,
-)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-output_path = f"{OUTPUT_DIR}/multitool_venn_diagram.png"
-plt.savefig(output_path, dpi=300, bbox_inches="tight")
-plt.close()
-
-print(
-    f"Successfully generated genomic interval Venn diagram and saved to"
-    f" '{output_path}'"
-)
+if __name__ == "__main__":
+    main()
