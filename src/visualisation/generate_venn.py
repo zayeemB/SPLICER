@@ -1,6 +1,6 @@
 """Venn diagram of junction overlap between LeafCutter, rMATS and MAJIQ.
 
-Run from the project root:  python -m src.visualisation.generate_venn
+Run from anywhere:  python src/visualisation/generate_venn.py  (after run.py)
 
 Each tool contributes its filtered, unique junctions (same filters as run.py). Junctions from
 different tools are linked when they are on the same strand and within MAX_BOUNDARY_DRIFT bp at both
@@ -17,10 +17,11 @@ import pandas as pd
 import pyranges as pr
 from matplotlib_venn import venn3
 
-from src.pipeline import MAX_BOUNDARY_DRIFT, OUTPUT_DIR, load_filtered_tools
+from src.config import DATASETS_DIR, MAX_BOUNDARY_DRIFT, PLOTS_DIR
+from src.pipeline import load_filtered_tools
 
-MERGED_FILE = OUTPUT_DIR / "multitool_summary.csv"
-OUTPUT_PATH = OUTPUT_DIR / "multitool_venn_diagram.png"
+MERGED_FILE = DATASETS_DIR / "multitool_summary.csv"
+OUTPUT_PATH = PLOTS_DIR / "multitool_venn_diagram.png"
 TOOLS = ['LeafCutter', 'rMATS', 'MAJIQ']
 
 
@@ -111,7 +112,7 @@ def main():
     caption += f"\nJunctions linked within {MAX_BOUNDARY_DRIFT} bp at both ends, same strand"
     fig.text(0.5, 0.06, caption, ha='center', fontsize=10)
 
-    OUTPUT_DIR.mkdir(exist_ok=True)
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
     fig.savefig(OUTPUT_PATH, dpi=300, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved Venn diagram to '{OUTPUT_PATH}'")

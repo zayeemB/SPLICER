@@ -1,6 +1,6 @@
 """Grouped bar chart of the genes with the largest splicing change in the merged data.
 
-Run from the project root:  python -m src.visualisation.gene_splice_variations
+Run from anywhere:  python src/visualisation/gene_splice_variations.py  (after run.py)
 
 For each gene the junction with the largest mean |DeltaPSI| across the three tools is used (a gene
 can have several junctions with opposite signs, so averaging them would cancel real changes out).
@@ -15,10 +15,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from src.pipeline import OUTPUT_DIR
+from src.config import DATASETS_DIR, PLOTS_DIR
 
-MERGED_FILE = OUTPUT_DIR / "multitool_summary.csv"
-OUTPUT_PATH = OUTPUT_DIR / "top_genes_deltapsi_comparison.png"
+MERGED_FILE = DATASETS_DIR / "multitool_summary.csv"
+OUTPUT_PATH = PLOTS_DIR / "top_genes_deltapsi_comparison.png"
 TOP_N = 30
 TOOLS = ['LeafCutter', 'rMATS', 'MAJIQ']
 COLORS = {'LeafCutter': '#e8605d', 'rMATS': '#5aa469', 'MAJIQ': '#5b6ee8'}
@@ -56,7 +56,7 @@ def main():
     ax.margins(x=0.01)
     fig.tight_layout()
 
-    OUTPUT_DIR.mkdir(exist_ok=True)
+    PLOTS_DIR.mkdir(parents=True, exist_ok=True)
     fig.savefig(OUTPUT_PATH, dpi=300, bbox_inches='tight')
     plt.close(fig)
     print(f"Saved bar chart to '{OUTPUT_PATH}'")

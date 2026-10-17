@@ -1,20 +1,17 @@
 import pandas as pd
 
-from src.pipeline import (
-    MAX_BOUNDARY_DRIFT,
-    OUTPUT_DIR,
-    load_filtered_tools,
-)
+from src.config import DATASETS_DIR, MAX_BOUNDARY_DRIFT
+from src.pipeline import load_filtered_tools
 from src.junction_table import build_junction_table
 from src.report import write_report
 from src.utils import merge_overlap_genomic
 
-OUTPUT_DIR.mkdir(exist_ok=True)
-OUTPUT_FILE = OUTPUT_DIR / "multitool_streamlined_filtered.csv"
-SUMMARY_FILE = OUTPUT_DIR / "multitool_summary.csv"
-JUNCTION_FILE = OUTPUT_DIR / "multitool_junctions.csv"
-REPORT_FILE = OUTPUT_DIR / "multitool_report.txt"
-DISAGREEMENTS_FILE = OUTPUT_DIR / "sign_disagreements.csv"
+DATASETS_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_FILE = DATASETS_DIR / "multitool_streamlined_filtered.csv"
+SUMMARY_FILE = DATASETS_DIR / "multitool_summary.csv"
+JUNCTION_FILE = DATASETS_DIR / "multitool_junctions.csv"
+REPORT_FILE = DATASETS_DIR / "multitool_report.txt"
+DISAGREEMENTS_FILE = DATASETS_DIR / "sign_disagreements.csv"
 
 # 1. Load each tool and apply its filters (shared with the visualisation scripts)
 lc_data, all_rmats_introns, majiq_data, filter_counts = load_filtered_tools()

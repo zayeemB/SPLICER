@@ -4,10 +4,16 @@ Used by run.py and the visualisation scripts so they all apply identical filters
 All tools report DeltaPSI as Hypoxia - Normoxia after parsing: rMATS (group 1 = hypoxia) is natively
 Hyp - Norm; LeafCutter and MAJIQ are natively Norm - Hyp and are flipped.
 """
-from pathlib import Path
-
 import pandas as pd
 
+from .config import (
+    LEAFCUTTER_FILE,
+    MAJIQ_FILE,
+    MIN_DELTA_PSI,
+    MAJIQ_PROB_THRESHOLD,
+    RMATS_DIR,
+    RMATS_FDR_THRESHOLD,
+)
 from .parsers.leafcutter_parser import parse_leafcutter
 from .parsers.majiq_parser import parse_majiq_voila
 from .parsers.rmats_parser import (
@@ -16,21 +22,6 @@ from .parsers.rmats_parser import (
     parse_rmats_mxe,
     parse_rmats_ri,
 )
-
-# Statistical and effect size thresholds
-RMATS_FDR_THRESHOLD = 0.05       # rMATS q-value (FDR) cutoff
-MAJIQ_PROB_THRESHOLD = 0.90      # MAJIQ Probability of Changing cutoff (>= 90% confidence)
-MIN_DELTA_PSI = 0.10             # Minimum absolute magnitude change (10%)
-MAX_BOUNDARY_DRIFT = 2           # Max bp difference at each junction end (tools differ by ~1 bp by convention)
-
-# All paths are resolved relative to the project root, so scripts work from any working directory.
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-OUTPUT_DIR = BASE_DIR / "output"
-
-LEAFCUTTER_FILE = DATA_DIR / "leafcutter" / "leafcutter_ds_effect_sizes.csv"
-MAJIQ_FILE = DATA_DIR / "majiq" / "tsv_f.csv"
-RMATS_DIR = DATA_DIR / "rmats"
 
 RMATS_EVENT_FILES = {
     'SE': (RMATS_DIR / "SE.csv", parse_rmats_se),
