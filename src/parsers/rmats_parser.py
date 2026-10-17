@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 from ..utils import standardize_chrom_strand
@@ -10,7 +11,23 @@ from ..utils import standardize_chrom_strand
 OUTPUT_COLS = [
     'rMATS_ID', 'EventType', 'geneSymbol', 'Chromosome', 'Strand', 'Start', 'End',
     'Intron_Type', 'IncLevelDifference', 'FDR', 'PValue',
+    'Inc_Rate_Hyp', 'Inc_Rate_Norm', 'Skip_Rate_Hyp', 'Skip_Rate_Norm',
 ]
+
+
+def _mean_rate(counts, lengths, n_reps):
+    """Mean over replicates of (read count / effective length).
+
+    rMATS stores replicate counts as comma-separated text ('12,4,13'). Rows whose count list does
+    not have exactly n_reps values are malformed in these files, so they get NaN rather than a guess.
+    """
+    def rate(text, length, n):
+        parts = str(text).split(',')
+        if len(parts) != n or not all(p.strip().isdigit() for p in parts):
+            return np.nan
+        return sum(int(p) for p in parts) / n / length
+
+    return pd.Series([rate(c, l, n) for c, l, n in zip(counts, lengths, n_reps)], index=counts.index)
 
 
 def _load(path, coord_cols):
@@ -21,6 +38,15 @@ def _load(path, coord_cols):
         df[col] = pd.to_numeric(df[col], errors='coerce')
     df = df.dropna(subset=coord_cols + ['IncLevelDifference']).copy()
     df[coord_cols] = df[coord_cols].astype(int)
+
+    # Mean read rate per effective position over the replicates (group 1 = hypoxia, 2 = normoxia).
+    # IJC / SJC = reads for the inclusion / skipping isoform; the effective lengths make them comparable.
+    n_hyp = df['IncLevel1'].astype(str).str.count(',') + 1
+    n_norm = df['IncLevel2'].astype(str).str.count(',') + 1
+    df['Inc_Rate_Hyp'] = _mean_rate(df['IJC_SAMPLE_1'], df['IncFormLen'], n_hyp)
+    df['Skip_Rate_Hyp'] = _mean_rate(df['SJC_SAMPLE_1'], df['SkipFormLen'], n_hyp)
+    df['Inc_Rate_Norm'] = _mean_rate(df['IJC_SAMPLE_2'], df['IncFormLen'], n_norm)
+    df['Skip_Rate_Norm'] = _mean_rate(df['SJC_SAMPLE_2'], df['SkipFormLen'], n_norm)
     return df
 
 
@@ -28,7 +54,9 @@ def _junctions(df, event_type, specs):
     """Builds one output row per (event, junction).
 
     specs: list of (Intron_Type, start, end, sign) where start/end are column names (or Series) in
-    df and sign is +1 for inclusion-isoform junctions and -1 for alternative-isoform junctions.
+    df and sign is +1 for inclusion-isoform junctions and -1 for alternative-isoform junctions
+    (a scalar, or a per-row Series). The read rates are per event, so every junction of an event
+    carries the same rates.
     Introns are 0-based half-open: Start = end of the upstream exon, End = 0-based start of the next.
     """
     frames = []
@@ -45,6 +73,10 @@ def _junctions(df, event_type, specs):
             'IncLevelDifference': sign * df['IncLevelDifference'],
             'FDR': df['FDR'],
             'PValue': df['PValue'],
+            'Inc_Rate_Hyp': df['Inc_Rate_Hyp'],
+            'Inc_Rate_Norm': df['Inc_Rate_Norm'],
+            'Skip_Rate_Hyp': df['Skip_Rate_Hyp'],
+            'Skip_Rate_Norm': df['Skip_Rate_Norm'],
         })
         frames.append(out)
     return pd.concat(frames, ignore_index=True)[OUTPUT_COLS]
@@ -101,14 +133,9 @@ def parse_rmats_mxe(path):
     sign_1st = df['Strand'].map({'+': 1, '-': -1}).fillna(1)
     sign_2nd = -sign_1st
 
-    frames = []
-    for intron_type, start, end, sign in [
+    return _junctions(df, 'MXE', [
         ('MXE_Upstream_Exon1', 'upstreamEE', '1stExonStart_0base', sign_1st),
         ('MXE_Exon1_Downstream', '1stExonEnd', 'downstreamES', sign_1st),
         ('MXE_Upstream_Exon2', 'upstreamEE', '2ndExonStart_0base', sign_2nd),
         ('MXE_Exon2_Downstream', '2ndExonEnd', 'downstreamES', sign_2nd),
-    ]:
-        part = _junctions(df, 'MXE', [(intron_type, start, end, 1)])
-        part['IncLevelDifference'] = part['IncLevelDifference'] * sign.values
-        frames.append(part)
-    return pd.concat(frames, ignore_index=True)[OUTPUT_COLS]
+    ])

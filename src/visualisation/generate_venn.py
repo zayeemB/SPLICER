@@ -18,17 +18,12 @@ import pyranges as pr
 from matplotlib_venn import venn3
 
 from src.config import DATASETS_DIR, MAX_BOUNDARY_DRIFT, PLOTS_DIR
+from src.analysis import unique_junctions
 from src.pipeline import load_filtered_tools
 
 MERGED_FILE = DATASETS_DIR / "multitool_summary.csv"
 OUTPUT_PATH = PLOTS_DIR / "multitool_venn_diagram.png"
 TOOLS = ['LeafCutter', 'rMATS', 'MAJIQ']
-
-
-def unique_junctions(df):
-    """One row per distinct junction (rMATS repeats a junction across events)."""
-    cols = ['Chromosome', 'Strand', 'Start', 'End']
-    return df[cols].drop_duplicates().reset_index(drop=True)
 
 
 def link_junctions(tool_junctions):

@@ -2,6 +2,7 @@ import pandas as pd
 
 from src.config import DATASETS_DIR, MAX_BOUNDARY_DRIFT
 from src.pipeline import load_filtered_tools
+from src.analysis import rmats_rate_comparison, unmerged_junctions
 from src.junction_table import build_junction_table
 from src.report import write_report
 from src.utils import merge_overlap_genomic
@@ -65,7 +66,20 @@ if not overlap_matches.empty:
     print(f"Saved junction-level table ({len(junction_table)} junctions) to '{JUNCTION_FILE}'")
 
     # 6. Sign-agreement report
-    write_report(summary, filter_counts, REPORT_FILE, DISAGREEMENTS_FILE, MAX_BOUNDARY_DRIFT)
+    # Filtered junctions that never made it into the merged data
+    unmerged = unmerged_junctions(
+        {'LeafCutter': lc_data, 'rMATS': all_rmats_introns, 'MAJIQ': majiq_data},
+        filtered_consensus, MAX_BOUNDARY_DRIFT)
+    print(unmerged.to_string(index=False))
+
+    # Were the unmerged rMATS junctions less strongly expressed?
+    tool_data = {'LeafCutter': lc_data, 'rMATS': all_rmats_introns, 'MAJIQ': majiq_data}
+    rate_summary, rate_pvalues = rmats_rate_comparison(
+        all_rmats_introns, tool_data, filtered_consensus, MAX_BOUNDARY_DRIFT)
+    print(rate_summary.to_string(index=False))
+
+    write_report(summary, filter_counts, REPORT_FILE, DISAGREEMENTS_FILE, MAX_BOUNDARY_DRIFT, unmerged,
+                 rate_summary, rate_pvalues)
     print(f"Saved sign-agreement report to '{REPORT_FILE}'")
 else:
     print("No overlapping consensus events found across the tools.")
