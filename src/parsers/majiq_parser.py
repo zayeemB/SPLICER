@@ -1,6 +1,6 @@
 import pandas as pd
 
-def parse_majiq_voila(voila_path, gene_to_chrom_map=None, flip_sign=False):
+def parse_majiq_voila(voila_path, flip_sign=False):
     """
     Parses MAJIQ/Voila output using the updated schema.
     - Automatically detects file delimiter (CSV/TSV).
@@ -23,9 +23,6 @@ def parse_majiq_voila(voila_path, gene_to_chrom_map=None, flip_sign=False):
         if pd.notna(raw_chrom):
             raw_chrom_str = str(raw_chrom)
             chrom = 'chr' + raw_chrom_str if not raw_chrom_str.startswith('chr') else raw_chrom_str
-        elif gene_to_chrom_map is not None:
-            # Fallback to GTF map if seqid is missing
-            chrom = gene_to_chrom_map.get(clean_gene, None)
         else:
             chrom = None
             
