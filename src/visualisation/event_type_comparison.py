@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.patches import Patch
 
 from src.config import DATASETS_DIR, PLOTS_DIR
 from src.pipeline import load_filtered_tools
@@ -55,6 +56,7 @@ def main():
     for i, (f, m) in enumerate(zip(filtered_n, merged_n)):
         ax.text(i + w / 2, m, f"{100 * m / f:.0f}%" if f else "", ha='center', va='bottom', fontsize=9)
     ax.set_yscale('log')
+    ax.set_ylim(bottom=10)
     ax.set_xticks(x, events)
     ax.set_ylabel("Unique rMATS junctions (log scale)")
     ax.set_title("A. Junctions reaching the merged data\n(label = % of filtered)", fontweight='bold')
@@ -67,7 +69,7 @@ def main():
         ax.text(i, p + 0.5, f"{p:.1f}%\n(n={n})", ha='center', va='bottom', fontsize=9)
     ax.set_ylim(80, 106)
     ax.set_xticks(x, events)
-    ax.set_ylabel("Merged rows where all 3 tools agree on sign (%)")
+    ax.set_ylabel("Merged rows where all 3 tools agree on sign (%)\n(axis starts at 80%)")
     ax.set_title("B. DeltaPSI sign agreement", fontweight='bold')
 
     # C. |DeltaPSI| per tool by event type
@@ -80,11 +82,10 @@ def main():
         for box in bp['boxes']:
             box.set_facecolor(COLORS[tool])
             box.set_alpha(0.8)
-        ax.bar([], [], color=COLORS[tool], label=tool)  # legend handle
     ax.set_xticks(x, events)
     ax.set_ylabel("|DeltaPSI| (Hyp - Norm)")
     ax.set_title("C. Effect size by tool", fontweight='bold')
-    ax.legend()
+    ax.legend(handles=[Patch(facecolor=COLORS[t], alpha=0.8, label=t) for t in TOOLS])
 
     fig.suptitle("Comparison by rMATS event type", fontsize=15, fontweight='bold')
     fig.tight_layout()
